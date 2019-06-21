@@ -4,6 +4,7 @@ import (
 	"math"
 	"strconv"
 	"syscall/js"
+	"time"
 )
 
 type matrix []float64
@@ -92,20 +93,21 @@ var (
 	}
 
 	// The 4x4 identity matrix
-	//identityMatrix = matrix{
-	//	1, 0, 0, 0,
-	//	0, 1, 0, 0,
-	//	0, 0, 1, 0,
-	//	0, 0, 0, 1,
-	//}
+	identityMatrix = matrix{
+		1, 0, 0, 0,
+		0, 1, 0, 0,
+		0, 0, 1, 0,
+		0, 0, 0, 1,
+	}
 
 	// Initialise the transform matrix with the identity matrix
-	//transformMatrix = identityMatrix
+	transformMatrix = identityMatrix
 
 	canvasEl, ctx, doc js.Value
 	graphWidth         float64
 	graphHeight        float64
 	height, width      int
+	opText             string
 	highLightSource    bool
 	pointStep          = 0.05
 
@@ -173,8 +175,8 @@ func clickHandler(cx int, cy int) {
 	clientX := float64(cx)
 	clientY := float64(cy)
 	if debug {
-		println("ClientX: " +  strconv.FormatFloat(clientX, 'f', 0, 64) + " clientY: " +  strconv.FormatFloat(clientY, 'f', 0, 64))
-		if clientX > graphWidth && clientY > (float64(height) - 40) {
+		println("ClientX: " + strconv.FormatFloat(clientX, 'f', 0, 64) + " clientY: " + strconv.FormatFloat(clientY, 'f', 0, 64))
+		if clientX > graphWidth && clientY > (float64(height)-40) {
 			println("URL hit!")
 		}
 	}
@@ -228,47 +230,117 @@ func importObject(ob Object, x float64, y float64, z float64) (translatedObject 
 	return translatedObject
 }
 
+type OperationType int
+
+const (
+	ROTATE OperationType = iota
+	SCALE
+	TRANSLATE
+)
+
 // Simple keyboard handler for catching the arrow, WASD, and numpad keys
 // Key value info can be found here: https://developer.mozilla.org/en-US/docs/Web/API/KeyboardEvent/key/Key_Values
 //go:export keyPressHandler
 func keyPressHandler(keyVal int) {
 	if debug {
-		println("Key is: " +  strconv.Itoa(keyVal))
+		println("Key is: " + strconv.Itoa(keyVal))
 	}
 
-	//stepSize := float64(25)
+	stepSize := float64(25)
 	switch keyVal {
 	case KEY_ARROW_LEFT:
-		//queue <- Operation{op: ROTATE, t: 50, f: 12, X: 0, Y: -stepSize, Z: 0}
 		println("Left arrow pressed")
+		processOperation(ROTATE, 50, 12, 0, -stepSize, 0)
 	case KEY_ARROW_RIGHT:
-		//queue <- Operation{op: ROTATE, t: 50, f: 12, X: 0, Y: stepSize, Z: 0}
 		println("Right arrow pressed")
+		processOperation(ROTATE, 50, 12, 0, stepSize, 0)
 	case KEY_ARROW_UP:
-		//queue <- Operation{op: ROTATE, t: 50, f: 12, X: -stepSize, Y: 0, Z: 0}
 		println("Up arrow pressed")
+		processOperation(ROTATE, 50, 12, -stepSize, 0, 0)
 	case KEY_ARROW_DOWN:
-		//queue <- Operation{op: ROTATE, t: 50, f: 12, X: stepSize, Y: 0, Z: 0}
 		println("Down arrow pressed")
+		processOperation(ROTATE, 50, 12, stepSize, 0, 0)
 	case KEY_PAGE_UP:
-		//queue <- Operation{op: ROTATE, t: 50, f: 12, X: -stepSize, Y: stepSize, Z: 0}
 		println("Page up pressed")
+		processOperation(ROTATE, 50, 12, -stepSize, stepSize, 0)
 	case KEY_PAGE_DOWN:
-		//queue <- Operation{op: ROTATE, t: 50, f: 12, X: stepSize, Y: stepSize, Z: 0}
 		println("Page down pressed")
+		processOperation(ROTATE, 50, 12, stepSize, stepSize, 0)
 	case KEY_HOME:
-		//queue <- Operation{op: ROTATE, t: 50, f: 12, X: -stepSize, Y: -stepSize, Z: 0}
 		println("Home key pressed")
+		processOperation(ROTATE, 50, 12, -stepSize, -stepSize, 0)
 	case KEY_END:
-		//queue <- Operation{op: ROTATE, t: 50, f: 12, X: stepSize, Y: -stepSize, Z: 0}
 		println("End key pressed")
+		processOperation(ROTATE, 50, 12, stepSize, -stepSize, 0)
 	case KEY_MINUS:
-		//queue <- Operation{op: ROTATE, t: 50, f: 12, X: 0, Y: 0, Z: -stepSize}
 		println("Minus key pressed")
+		processOperation(ROTATE, 50, 12, 0, 0, -stepSize)
 	case KEY_PLUS:
-		//queue <- Operation{op: ROTATE, t: 50, f: 12, X: 0, Y: 0, Z: stepSize}
 		println("Plus pressed")
+		processOperation(ROTATE, 50, 12, 0, 0, stepSize)
 	}
+}
+
+// Animates the transformation operation
+//go:export processOperation
+func processOperation(op OperationType, t int32, f int32, X float64, Y float64, Z float64) {
+	// renderActive.Store(true)         // Mark rendering as now in progress
+	parts := f                       // Number of parts to break each transformation into
+	transformMatrix = identityMatrix // Reset the transform matrix
+	switch op {
+	case ROTATE: // Rotate the objects in world space
+		// Divide the desired angle into a small number of parts
+		if X != 0 {
+			transformMatrix = rotateAroundX(transformMatrix, X/float64(parts))
+		}
+		if Y != 0 {
+			transformMatrix = rotateAroundY(transformMatrix, Y/float64(parts))
+		}
+		if Z != 0 {
+			transformMatrix = rotateAroundZ(transformMatrix, Z/float64(parts))
+		}
+		// opText = "Rotation. X: %0.2f Y: %0.2f Z: %0.2f", task.X, task.Y, task.Z
+
+	case SCALE:
+		// Scale the objects in world space
+		var xPart, yPart, zPart float64
+		if X != 1 {
+			xPart = ((X - 1) / float64(parts)) + 1
+		}
+		if Y != 1 {
+			yPart = ((Y - 1) / float64(parts)) + 1
+		}
+		if Z != 1 {
+			zPart = ((Z - 1) / float64(parts)) + 1
+		}
+		transformMatrix = scale(transformMatrix, xPart, yPart, zPart)
+		// opText = fmt.Sprintf("Scale. X: %0.2f Y: %0.2f Z: %0.2f", i.X, i.Y, i.Z)
+
+	case TRANSLATE:
+		// Translate (move) the objects in world space
+		transformMatrix = translate(transformMatrix, X/float64(parts), Y/float64(parts), Z/float64(parts))
+		// opText = fmt.Sprintf("Translate (move). X: %0.2f Y: %0.2f Z: %0.2f", i.X, i.Y, i.Z)
+	}
+
+	// Apply each transformation, one small part at a time (this gives the animation effect)
+	timeSlice := time.Millisecond * time.Duration(t/parts)
+	for t := 0; t < int(parts); t++ {
+		time.Sleep(timeSlice)
+		for j, o := range worldSpace {
+			var newPoints []Point
+
+			// Transform each point of in the object
+			for _, j := range o.P {
+				newPoints = append(newPoints, transform(transformMatrix, j))
+			}
+			o.P = newPoints
+
+			// Update the object in world space
+			worldSpace[j] = o
+		}
+	}
+	// renderActive.Store(false)
+	opText = "Complete."
 }
 
 // Multiplies one matrix by another
@@ -321,7 +393,7 @@ func moveHandler(cx int, cy int) {
 	clientX := float64(cx)
 	clientY := float64(cy)
 	if debug {
-		println("ClientX: " +  strconv.FormatFloat(clientX, 'f', 0, 64) + " clientY: " +  strconv.FormatFloat(clientY, 'f', 0, 64))
+		println("ClientX: " + strconv.FormatFloat(clientX, 'f', 0, 64) + " clientY: " + strconv.FormatFloat(clientY, 'f', 0, 64))
 	}
 
 	// If the mouse is over the source code link, let the frame renderer know to draw the url in bold
@@ -540,7 +612,6 @@ func renderFrame(args []js.Value) {
 	ctx.Call("stroke")
 }
 
-
 // Rotates a transformation matrix around the X axis by the given degrees
 //go:export rotateAroundX
 func rotateAroundX(m matrix, degrees float64) matrix {
@@ -630,4 +701,21 @@ func translate(m matrix, translateX float64, translateY float64, translateZ floa
 		0, 0, 0, 1,
 	}
 	return matrixMult(translateMatrix, m)
+}
+
+// Simple mouse handler watching for mouse wheel events
+// Reference info can be found here: https://developer.mozilla.org/en-US/docs/Web/Events/wheel
+//go:export wheelHandler
+func wheelHandler(args []js.Value) {
+	event := args[0]
+	wheelDelta := event.Get("deltaY").Float()
+	scaleSize := 1 + (wheelDelta / 5)
+	if debug {
+		println("Wheel delta: " + strconv.FormatFloat(wheelDelta, 'f', 0, 64) + " scaleSize: " + strconv.FormatFloat(scaleSize, 'f', 0, 64) + "\n")
+	}
+
+	// // Don't add operations if one is already in progress
+	// if !renderActive.Load() {
+	// 	processOperations(SCALE, 50, 12, scaleSize, scaleSize, scaleSize)
+	// }
 }

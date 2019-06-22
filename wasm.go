@@ -133,10 +133,35 @@ var (
 )
 
 func main() {
-}
+	// Define the Go based event handlers here, as they can't get be stored in the global space (not yet implemented)
+	var (
+		// Simple mouse handler watching for people clicking on the source code link
+		clickHandler = js.FuncOf(func(this js.Value, args []js.Value) interface{} {
+			e := args[0]
+			clientX := e.Get("clientX").Float()
+			clientY := e.Get("clientY").Float()
+			if debug {
+				println("ClientX: " + strconv.FormatFloat(clientX, 'f', 0, 64) + " clientY: " + strconv.FormatFloat(clientY, 'f', 0, 64))
+				if clientX > graphWidth && clientY > (float64(height)-40) {
+					println("URL hit!")
+				}
+			}
 
-//go:export clearCanvas
-func clearCanvas() {
+			// If the user clicks the source code URL area, open the URL
+			if clientX > graphWidth && clientY > (float64(height)-40) {
+				w := js.Global().Call("open", sourceURL)
+				if w == js.Null() {
+					// Couldn't open a new window, so try loading directly in the existing one instead
+					doc.Set("location", sourceURL)
+				}
+			}
+			return nil
+		})
+
+
+	)
+
+	// The actual main function, run once at start
 	width := js.Global().Get("innerWidth").Int()
 	height := js.Global().Get("innerHeight").Int()
 	doc = js.Global().Get("document")
@@ -145,6 +170,10 @@ func clearCanvas() {
 	canvasEl.Call("setAttribute", "height", height)
 	canvasEl.Set("tabIndex", 0) // Not sure if this is needed
 	ctx = canvasEl.Call("getContext", "2d")
+
+	// Set up the Go event handlers
+	canvasEl.Call("addEventListener", "mousedown", clickHandler)
+
 
 	// Add the X/Y axes object to the world space
 	worldSpace = append(worldSpace, importObject(axes, 0.0, 0.0, 0.0))
@@ -182,28 +211,6 @@ func clearCanvas() {
 	firstDeriv.DrawOrder = 2
 	firstDeriv.Name = "firstDeriv"
 	worldSpace = append(worldSpace, importObject(firstDeriv, 0.0, 0.0, 0.0))
-}
-
-// Simple mouse handler watching for people clicking on the source code link
-//go:export clickHandler
-func clickHandler(cx int, cy int) {
-	clientX := float64(cx)
-	clientY := float64(cy)
-	if debug {
-		println("ClientX: " + strconv.FormatFloat(clientX, 'f', 0, 64) + " clientY: " + strconv.FormatFloat(clientY, 'f', 0, 64))
-		if clientX > graphWidth && clientY > (float64(height)-40) {
-			println("URL hit!")
-		}
-	}
-
-	// If the user clicks the source code URL area, open the URL
-	if clientX > graphWidth && clientY > (float64(height)-40) {
-		w := js.Global().Call("open", sourceURL)
-		if w == js.Null() {
-			// Couldn't open a new window, so try loading directly in the existing one instead
-			doc.Set("location", sourceURL)
-		}
-	}
 }
 
 // Returns an object whose points have been transformed into 3D world space XYZ co-ordinates.  Also assigns a number

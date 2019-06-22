@@ -4,15 +4,6 @@ const WASM_URL = 'wasm.wasm';
 
 var wasm;
 
-function clearCanvas() {
-  wasm.exports.clearCanvas();
-}
-
-// Pass mouse clicks through to the wasm handler
-function clickHandler(evt) {
-  wasm.exports.clickHandler(evt.clientX, evt.clientY);
-}
-
 // Pass key presses through to the wasm handler
 function keyPressHandler(evt) {
   let key = 0;
@@ -88,9 +79,10 @@ function keyPressHandler(evt) {
 
 // Pass mouse movement events through to its wasm handler
 function moveHandler(evt) {
-  // console.log(evt);
-  wasm.exports.moveHandler(evt.clientX, evt.clientY);
+    // console.log(evt);
+    wasm.exports.moveHandler(evt.clientX, evt.clientY);
 }
+
 
 function renderFrames() {
     wasm.exports.applyTransformation();
@@ -111,13 +103,9 @@ function init() {
       go.run(wasm);
 
       // Set up wasm event handlers
-      document.getElementById("mycanvas").addEventListener("mousedown", clickHandler);
       document.getElementById("mycanvas").addEventListener("keydown", keyPressHandler);
       document.getElementById("mycanvas").addEventListener("mousemove", moveHandler);
       document.getElementById("mycanvas").addEventListener("wheel", wheelHandler);
-
-      // Set up the canvas
-      clearCanvas();
 
       // Set up basic render loop
       setInterval(function() {
@@ -133,13 +121,9 @@ function init() {
         go.run(wasm);
 
         // Set up wasm event handlers
-        document.getElementById("mycanvas").addEventListener("mousedown", clickHandler);
         document.getElementById("mycanvas").addEventListener("keydown", keyPressHandler);
         document.getElementById("mycanvas").addEventListener("mousemove", moveHandler);
         document.getElementById("mycanvas").addEventListener("wheel", wheelHandler);
-
-        // Set up the canvas
-        clearCanvas();
 
         // Set up basic render loop
         setInterval(function() {

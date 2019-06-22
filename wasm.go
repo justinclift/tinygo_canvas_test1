@@ -54,10 +54,6 @@ const (
 	TRANSLATE
 )
 
-const (
-	sourceURL = "https://github.com/justinclift/tinygo_canvas_test1"
-)
-
 var (
 	// The empty world space
 	worldSpace []Object
@@ -119,9 +115,6 @@ var (
 	graphWidth         float64
 	graphHeight        float64
 	height, width      int
-	opText             string
-	highLightSource    bool
-	pointStep          = 0.05
 	stepSize           = float64(25)
 
 	// Queue operations
@@ -133,10 +126,149 @@ var (
 )
 
 func main() {
-}
+	// Declare the Go based event handlers here, as they can't get be stored in the global space yet (not implemented)
+	var renderFrame js.Func
 
-//go:export clearCanvas
-func clearCanvas() {
+	// Renders one frame of the animation
+	renderFrame = js.FuncOf(func(this js.Value, args []js.Value) interface{} {
+		// Handle window resizing
+		curBodyW := js.Global().Get("innerWidth").Int()
+		curBodyH := js.Global().Get("innerHeight").Int()
+		if curBodyW != width || curBodyH != height {
+			width, height = curBodyW, curBodyH
+			canvasEl.Set("width", width)
+			canvasEl.Set("height", height)
+		}
+
+		// Setup useful variables
+		border := float64(2)
+		gap := float64(3)
+		left := border + gap
+		top := border + gap
+		graphWidth = float64(width) * 0.75
+		graphHeight = float64(height) - 1
+		centerX := graphWidth / 2
+		centerY := graphHeight / 2
+
+		// Clear the background
+		ctx.Set("fillStyle", "white")
+		ctx.Call("fillRect", 0, 0, width, height)
+
+		// Draw grid lines
+		step := math.Min(float64(width), float64(height)) / float64(30)
+		ctx.Set("strokeStyle", "rgb(220, 220, 220)")
+		//ctx.Call("setLineDash", []interface{}{1, 3})
+		for i := left; i < graphWidth-step; i += step {
+			// Vertical dashed lines
+			ctx.Call("beginPath")
+			ctx.Call("moveTo", i+step, top)
+			ctx.Call("lineTo", i+step, graphHeight)
+			ctx.Call("stroke")
+		}
+		for i := top; i < graphHeight-step; i += step {
+			// Horizontal dashed lines
+			ctx.Call("beginPath")
+			ctx.Call("moveTo", left, i+step)
+			ctx.Call("lineTo", graphWidth-border, i+step)
+			ctx.Call("stroke")
+		}
+
+		// Draw the axes
+		var pointX, pointY float64
+		ctx.Set("strokeStyle", "black")
+		ctx.Set("lineWidth", "1")
+		//ctx.Call("setLineDash", []interface{}{})
+		for _, o := range worldSpace {
+
+			// Draw the surfaces
+			ctx.Set("fillStyle", o.C)
+			for _, l := range o.S {
+				for m, n := range l {
+					pointX = o.P[n].X
+					pointY = o.P[n].Y
+					if m == 0 {
+						ctx.Call("beginPath")
+						ctx.Call("moveTo", centerX+(pointX*step), centerY+((pointY*step)*-1))
+					} else {
+						ctx.Call("lineTo", centerX+(pointX*step), centerY+((pointY*step)*-1))
+					}
+				}
+				ctx.Call("closePath")
+				ctx.Call("fill")
+			}
+
+			// Draw the edges
+			var point1X, point1Y, point2X, point2Y float64
+			for _, l := range o.E {
+				point1X = o.P[l[0]].X
+				point1Y = o.P[l[0]].Y
+				point2X = o.P[l[1]].X
+				point2Y = o.P[l[1]].Y
+				ctx.Call("beginPath")
+				ctx.Call("moveTo", centerX+(point1X*step), centerY+((point1Y*step)*-1))
+				ctx.Call("lineTo", centerX+(point2X*step), centerY+((point2Y*step)*-1))
+				ctx.Call("stroke")
+			}
+
+			// Draw any point labels
+			ctx.Set("fillStyle", "black")
+			ctx.Set("font", "bold 16px serif")
+			var px, py float64
+			for _, l := range o.P {
+				if l.Label != "" {
+					ctx.Set("textAlign", l.LabelAlign)
+					px = centerX + (l.X * step)
+					py = centerY + ((l.Y * step) * -1)
+					ctx.Call("fillText", l.Label, px, py)
+				}
+			}
+		}
+
+		// Draw the graph and derivatives
+		ctx.Set("lineWidth", "2")
+		//ctx.Call("setLineDash", []interface{}{})
+		var px, py float64
+		numWld := len(worldSpace)
+		for i := 0; i < numWld; i++ {
+			o := worldSpace[i]
+			if o.Name != "axes" {
+				// Draw lines between the points
+				ctx.Set("strokeStyle", o.C)
+				ctx.Call("beginPath")
+				for k, l := range o.P {
+					px = centerX + (l.X * step)
+					py = centerY + ((l.Y * step) * -1)
+					if k == 0 {
+						ctx.Call("moveTo", px, py)
+					} else {
+						ctx.Call("lineTo", px, py)
+					}
+				}
+				ctx.Call("stroke")
+
+				// Draw dots for the points
+				ctx.Set("fillStyle", "black")
+				for _, l := range o.P {
+					px = centerX + (l.X * step)
+					py = centerY + ((l.Y * step) * -1)
+					ctx.Call("beginPath")
+					ctx.Call("ellipse", px, py, 1, 1, 0, 0, 2*math.Pi)
+					ctx.Call("fill")
+					ctx.Call("stroke")
+				}
+			}
+		}
+
+		// Clear the information area (right side)
+		ctx.Set("fillStyle", "white")
+		ctx.Call("fillRect", graphWidth+1, 0, width, height)
+
+
+		js.Global().Call("requestAnimationFrame", renderFrame)
+		return nil
+	})
+
+	// The actual main function, run once at start
 	width := js.Global().Get("innerWidth").Int()
 	height := js.Global().Get("innerHeight").Int()
 	doc = js.Global().Get("document")
@@ -149,61 +281,8 @@ func clearCanvas() {
 	// Add the X/Y axes object to the world space
 	worldSpace = append(worldSpace, importObject(axes, 0.0, 0.0, 0.0))
 
-	// Create a graph object with the main data points on it
-	var firstDeriv, graph Object
-	var p Point
-	graphLabeled := false
-	for x := -2.1; x <= 2.2; x += 0.05 {
-		p = Point{X: x, Y: x * x * x} // y = x^3
-		if !graphLabeled {
-			p.Label = " Equation: y = x³ "
-			p.LabelAlign = "right"
-			graphLabeled = true
-		}
-		graph.P = append(graph.P, p)
-	}
-	graph.C = "blue"
-	graph.DrawOrder = 1
-	graph.Name = "graph"
-	worldSpace = append(worldSpace, importObject(graph, 0.0, 0.0, 0.0))
-
-	// Create a graph object with the 1st order derivative points on it
-	graphLabeled = false
-	for x := -2.1; x <= 2.2; x += pointStep {
-		p = Point{X: x, Y: 3 * (x * x)} // y = 3x^2
-		if !graphLabeled {
-			p.Label = " 1st order derivative: y = 3x² "
-			p.LabelAlign = "right"
-			graphLabeled = true
-		}
-		firstDeriv.P = append(firstDeriv.P, p)
-	}
-	firstDeriv.C = "green"
-	firstDeriv.DrawOrder = 2
-	firstDeriv.Name = "firstDeriv"
-	worldSpace = append(worldSpace, importObject(firstDeriv, 0.0, 0.0, 0.0))
-}
-
-// Simple mouse handler watching for people clicking on the source code link
-//go:export clickHandler
-func clickHandler(cx int, cy int) {
-	clientX := float64(cx)
-	clientY := float64(cy)
-	if debug {
-		println("ClientX: " + strconv.FormatFloat(clientX, 'f', 0, 64) + " clientY: " + strconv.FormatFloat(clientY, 'f', 0, 64))
-		if clientX > graphWidth && clientY > (float64(height)-40) {
-			println("URL hit!")
-		}
-	}
-
-	// If the user clicks the source code URL area, open the URL
-	if clientX > graphWidth && clientY > (float64(height)-40) {
-		w := js.Global().Call("open", sourceURL)
-		if w == js.Null() {
-			// Couldn't open a new window, so try loading directly in the existing one instead
-			doc.Set("location", sourceURL)
-		}
-	}
+	// Start running
+	js.Global().Call("requestAnimationFrame", renderFrame)
 }
 
 // Returns an object whose points have been transformed into 3D world space XYZ co-ordinates.  Also assigns a number
@@ -316,7 +395,6 @@ func setUpOperation(op OperationType, t int32, f int32, X float64, Y float64, Z 
 		if Z != 0 {
 			transformMatrix = rotateAroundZ(transformMatrix, Z/float64(queueParts))
 		}
-		opText = "Rotation. X: " + strconv.FormatFloat(X, 'f', 0, 64) + " Y: " + strconv.FormatFloat(Y, 'f', 0, 64) + " Z: " + strconv.FormatFloat(Z, 'f', 0, 64)
 
 	case SCALE:
 		// Scale the objects in world space
@@ -331,12 +409,10 @@ func setUpOperation(op OperationType, t int32, f int32, X float64, Y float64, Z 
 			zPart = ((Z - 1) / float64(queueParts)) + 1
 		}
 		transformMatrix = scale(transformMatrix, xPart, yPart, zPart)
-		opText = "Scale. X: " + strconv.FormatFloat(X, 'f', 0, 64) + " Y: " + strconv.FormatFloat(Y, 'f', 0, 64) + " Z: " + strconv.FormatFloat(Z, 'f', 0, 64)
 
 	case TRANSLATE:
 		// Translate (move) the objects in world space
 		transformMatrix = translate(transformMatrix, X/float64(queueParts), Y/float64(queueParts), Z/float64(queueParts))
-		opText = "Translate. X: " + strconv.FormatFloat(X, 'f', 0, 64) + " Y: " + strconv.FormatFloat(Y, 'f', 0, 64) + " Z: " + strconv.FormatFloat(Z, 'f', 0, 64)
 	}
 	queueOp = op
 }
@@ -345,7 +421,6 @@ func setUpOperation(op OperationType, t int32, f int32, X float64, Y float64, Z 
 //go:export applyTransformation
 func applyTransformation() {
 	if (queueParts < 1 && queueOp == SCALE) || queueOp == NOTHING {
-		opText = "Complete."
 		return
 	}
 
@@ -407,237 +482,6 @@ func matrixMult(opMatrix matrix, m matrix) (resultMatrix matrix) {
 		(opMatrix[12] * top3) + (opMatrix[13] * upperMid3) + (opMatrix[14] * lowerMid3) + (opMatrix[15] * bot3), // 4th col, bottom
 	}
 	return resultMatrix
-}
-
-// Simple mouse handler watching for people moving the mouse over the source code link
-//go:export moveHandler
-func moveHandler(cx int, cy int) {
-	clientX := float64(cx)
-	clientY := float64(cy)
-	if debug {
-		println("ClientX: " + strconv.FormatFloat(clientX, 'f', 0, 64) + " clientY: " + strconv.FormatFloat(clientY, 'f', 0, 64))
-	}
-
-	// If the mouse is over the source code link, let the frame renderer know to draw the url in bold
-	if clientX > graphWidth && clientY > (float64(height)-40) {
-		highLightSource = true
-	} else {
-		highLightSource = false
-	}
-}
-
-// Renders one frame of the animation
-//go:export renderFrame
-func renderFrame() {
-	// Handle window resizing
-	curBodyW := js.Global().Get("innerWidth").Int()
-	curBodyH := js.Global().Get("innerHeight").Int()
-	if curBodyW != width || curBodyH != height {
-		width, height = curBodyW, curBodyH
-		canvasEl.Set("width", width)
-		canvasEl.Set("height", height)
-	}
-
-	// Setup useful variables
-	border := float64(2)
-	gap := float64(3)
-	left := border + gap
-	top := border + gap
-	graphWidth = float64(width) * 0.75
-	graphHeight = float64(height) - 1
-	centerX := graphWidth / 2
-	centerY := graphHeight / 2
-
-	// Clear the background
-	ctx.Set("fillStyle", "white")
-	ctx.Call("fillRect", 0, 0, width, height)
-
-	// Draw grid lines
-	step := math.Min(float64(width), float64(height)) / float64(30)
-	ctx.Set("strokeStyle", "rgb(220, 220, 220)")
-	//ctx.Call("setLineDash", []interface{}{1, 3})
-	for i := left; i < graphWidth-step; i += step {
-		// Vertical dashed lines
-		ctx.Call("beginPath")
-		ctx.Call("moveTo", i+step, top)
-		ctx.Call("lineTo", i+step, graphHeight)
-		ctx.Call("stroke")
-	}
-	for i := top; i < graphHeight-step; i += step {
-		// Horizontal dashed lines
-		ctx.Call("beginPath")
-		ctx.Call("moveTo", left, i+step)
-		ctx.Call("lineTo", graphWidth-border, i+step)
-		ctx.Call("stroke")
-	}
-
-	// Draw the axes
-	var pointX, pointY float64
-	ctx.Set("strokeStyle", "black")
-	ctx.Set("lineWidth", "1")
-	//ctx.Call("setLineDash", []interface{}{})
-	for _, o := range worldSpace {
-
-		// Draw the surfaces
-		ctx.Set("fillStyle", o.C)
-		for _, l := range o.S {
-			for m, n := range l {
-				pointX = o.P[n].X
-				pointY = o.P[n].Y
-				if m == 0 {
-					ctx.Call("beginPath")
-					ctx.Call("moveTo", centerX+(pointX*step), centerY+((pointY*step)*-1))
-				} else {
-					ctx.Call("lineTo", centerX+(pointX*step), centerY+((pointY*step)*-1))
-				}
-			}
-			ctx.Call("closePath")
-			ctx.Call("fill")
-		}
-
-		// Draw the edges
-		var point1X, point1Y, point2X, point2Y float64
-		for _, l := range o.E {
-			point1X = o.P[l[0]].X
-			point1Y = o.P[l[0]].Y
-			point2X = o.P[l[1]].X
-			point2Y = o.P[l[1]].Y
-			ctx.Call("beginPath")
-			ctx.Call("moveTo", centerX+(point1X*step), centerY+((point1Y*step)*-1))
-			ctx.Call("lineTo", centerX+(point2X*step), centerY+((point2Y*step)*-1))
-			ctx.Call("stroke")
-		}
-
-		// Draw any point labels
-		ctx.Set("fillStyle", "black")
-		ctx.Set("font", "bold 16px serif")
-		var px, py float64
-		for _, l := range o.P {
-			if l.Label != "" {
-				ctx.Set("textAlign", l.LabelAlign)
-				px = centerX + (l.X * step)
-				py = centerY + ((l.Y * step) * -1)
-				ctx.Call("fillText", l.Label, px, py)
-			}
-		}
-	}
-
-	// Draw the graph and derivatives
-	ctx.Set("lineWidth", "2")
-	//ctx.Call("setLineDash", []interface{}{})
-	var px, py float64
-	numWld := len(worldSpace)
-	for i := 0; i < numWld; i++ {
-		o := worldSpace[i]
-		if o.Name != "axes" {
-			// Draw lines between the points
-			ctx.Set("strokeStyle", o.C)
-			ctx.Call("beginPath")
-			for k, l := range o.P {
-				px = centerX + (l.X * step)
-				py = centerY + ((l.Y * step) * -1)
-				if k == 0 {
-					ctx.Call("moveTo", px, py)
-				} else {
-					ctx.Call("lineTo", px, py)
-				}
-			}
-			ctx.Call("stroke")
-
-			// Draw dots for the points
-			ctx.Set("fillStyle", "black")
-			for _, l := range o.P {
-				px = centerX + (l.X * step)
-				py = centerY + ((l.Y * step) * -1)
-				ctx.Call("beginPath")
-				ctx.Call("ellipse", px, py, 1, 1, 0, 0, 2*math.Pi)
-				ctx.Call("fill")
-				ctx.Call("stroke")
-			}
-		}
-	}
-
-	// Clear the information area (right side)
-	ctx.Set("fillStyle", "white")
-	ctx.Call("fillRect", graphWidth+1, 0, width, height)
-
-	// Draw the text describing the current operation
-	textY := top + 20
-	ctx.Set("fillStyle", "black")
-	ctx.Set("font", "bold 14px serif")
-	ctx.Set("textAlign", "left")
-	ctx.Call("fillText", "Operation:", graphWidth+20, textY)
-	textY += 20
-	ctx.Set("font", "14px sans-serif")
-	ctx.Call("fillText", opText, graphWidth+20, textY)
-	textY += 30
-
-	// Add the help text about control keys and mouse zoom
-	ctx.Set("fillStyle", "blue")
-	ctx.Set("font", "14px sans-serif")
-	ctx.Call("fillText", "Use wasd to move, numpad keys", graphWidth+20, textY)
-	textY += 20
-	ctx.Call("fillText", "to rotate, mouse wheel to zoom.", graphWidth+20, textY)
-	textY += 30
-	ctx.Call("fillText", "+ and - keys to change speed.", graphWidth+20, textY)
-	textY += 30
-	ctx.Call("fillText", "Press a key a 2nd time to", graphWidth+20, textY)
-	textY += 20
-	ctx.Call("fillText", "stop the current change.", graphWidth+20, textY)
-	textY += 40
-
-	// Add the graph and derivatives information
-	ctx.Set("fillStyle", "black")
-	ctx.Set("font", "bold 18px serif")
-	ctx.Call("fillText", "Equation", graphWidth+20, textY)
-	textY += 20
-	ctx.Set("font", "16px sans-serif")
-	ctx.Call("fillText", "y = x³", graphWidth+40, textY)
-	textY += 30
-
-	// Add the derivatives information
-	ctx.Set("font", "bold 18px serif")
-	ctx.Call("fillText", "1st order derivative", graphWidth+20, textY)
-	textY += 20
-	ctx.Set("font", "16px sans-serif")
-	ctx.Call("fillText", "y = 3x²", graphWidth+40, textY)
-
-	// Clear the source code link area
-	ctx.Set("fillStyle", "white")
-	ctx.Call("fillRect", graphWidth+1, graphHeight-55, width, height)
-
-	// Add the URL to the source code
-	ctx.Set("fillStyle", "black")
-	ctx.Set("font", "bold 14px serif")
-	ctx.Call("fillText", "Source code:", graphWidth+20, graphHeight-35)
-	ctx.Set("fillStyle", "blue")
-	if highLightSource == true {
-		ctx.Set("font", "bold 12px sans-serif")
-	} else {
-		ctx.Set("font", "12px sans-serif")
-	}
-	ctx.Call("fillText", sourceURL, graphWidth+20, graphHeight-15)
-
-	// Draw a border around the graph area
-	//ctx.Call("setLineDash", []interface{}{})
-	ctx.Set("lineWidth", "2")
-	ctx.Set("strokeStyle", "white")
-	ctx.Call("beginPath")
-	ctx.Call("moveTo", 0, 0)
-	ctx.Call("lineTo", width, 0)
-	ctx.Call("lineTo", width, height)
-	ctx.Call("lineTo", 0, height)
-	ctx.Call("closePath")
-	ctx.Call("stroke")
-	ctx.Set("lineWidth", "2")
-	ctx.Set("strokeStyle", "black")
-	ctx.Call("beginPath")
-	ctx.Call("moveTo", border, border)
-	ctx.Call("lineTo", graphWidth, border)
-	ctx.Call("lineTo", graphWidth, graphHeight)
-	ctx.Call("lineTo", border, graphHeight)
-	ctx.Call("closePath")
-	ctx.Call("stroke")
 }
 
 // Rotates a transformation matrix around the X axis by the given degrees
@@ -731,14 +575,3 @@ func translate(m matrix, translateX float64, translateY float64, translateZ floa
 	return matrixMult(translateMatrix, m)
 }
 
-// Simple mouse handler watching for mouse wheel events
-// Reference info can be found here: https://developer.mozilla.org/en-US/docs/Web/Events/wheel
-//go:export wheelHandler
-func wheelHandler(val int32) {
-	wheelDelta := int64(val)
-	scaleSize := 1 + (float64(wheelDelta) / 5)
-	if debug {
-		println("Wheel delta: " + strconv.FormatInt(wheelDelta, 10) + " scaleSize: " + strconv.FormatInt(wheelDelta, 10) + "\n")
-	}
-	setUpOperation(SCALE, 50, 12, scaleSize, scaleSize, scaleSize)
-}

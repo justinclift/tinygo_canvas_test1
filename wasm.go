@@ -2,7 +2,6 @@ package main
 
 import (
 	"math"
-	"strconv"
 	"syscall/js"
 )
 
@@ -27,32 +26,6 @@ type Object struct {
 	DrawOrder int       // Draw order for the object
 	Name      string
 }
-
-const (
-	KEY_MOVE_LEFT int = iota + 1
-	KEY_MOVE_RIGHT
-	KEY_MOVE_UP
-	KEY_MOVE_DOWN
-	KEY_ROTATE_LEFT
-	KEY_ROTATE_RIGHT
-	KEY_ROTATE_UP
-	KEY_ROTATE_DOWN
-	KEY_PAGE_UP
-	KEY_PAGE_DOWN
-	KEY_HOME
-	KEY_END
-	KEY_MINUS
-	KEY_PLUS
-)
-
-type OperationType int
-
-const (
-	NOTHING OperationType = iota
-	ROTATE
-	SCALE
-	TRANSLATE
-)
 
 var (
 	// The empty world space
@@ -115,14 +88,6 @@ var (
 	graphWidth         float64
 	graphHeight        float64
 	height, width      int
-	stepSize           = float64(25)
-
-	// Queue operations
-	prevKey    int
-	queueOp    OperationType
-	queueParts int32
-
-	debug = false
 )
 
 func main() {
@@ -157,7 +122,6 @@ func main() {
 		// Draw grid lines
 		step := math.Min(float64(width), float64(height)) / float64(30)
 		ctx.Set("strokeStyle", "rgb(220, 220, 220)")
-		//ctx.Call("setLineDash", []interface{}{1, 3})
 		for i := left; i < graphWidth-step; i += step {
 			// Vertical dashed lines
 			ctx.Call("beginPath")
@@ -177,7 +141,6 @@ func main() {
 		var pointX, pointY float64
 		ctx.Set("strokeStyle", "black")
 		ctx.Set("lineWidth", "1")
-		//ctx.Call("setLineDash", []interface{}{})
 		for _, o := range worldSpace {
 
 			// Draw the surfaces
@@ -223,46 +186,7 @@ func main() {
 				}
 			}
 		}
-
-		// Draw the graph and derivatives
 		ctx.Set("lineWidth", "2")
-		//ctx.Call("setLineDash", []interface{}{})
-		var px, py float64
-		numWld := len(worldSpace)
-		for i := 0; i < numWld; i++ {
-			o := worldSpace[i]
-			if o.Name != "axes" {
-				// Draw lines between the points
-				ctx.Set("strokeStyle", o.C)
-				ctx.Call("beginPath")
-				for k, l := range o.P {
-					px = centerX + (l.X * step)
-					py = centerY + ((l.Y * step) * -1)
-					if k == 0 {
-						ctx.Call("moveTo", px, py)
-					} else {
-						ctx.Call("lineTo", px, py)
-					}
-				}
-				ctx.Call("stroke")
-
-				// Draw dots for the points
-				ctx.Set("fillStyle", "black")
-				for _, l := range o.P {
-					px = centerX + (l.X * step)
-					py = centerY + ((l.Y * step) * -1)
-					ctx.Call("beginPath")
-					ctx.Call("ellipse", px, py, 1, 1, 0, 0, 2*math.Pi)
-					ctx.Call("fill")
-					ctx.Call("stroke")
-				}
-			}
-		}
-
-		// Clear the information area (right side)
-		ctx.Set("fillStyle", "white")
-		ctx.Call("fillRect", graphWidth+1, 0, width, height)
-
 
 		js.Global().Call("requestAnimationFrame", renderFrame)
 		return nil
@@ -280,6 +204,10 @@ func main() {
 
 	// Add the X/Y axes object to the world space
 	worldSpace = append(worldSpace, importObject(axes, 0.0, 0.0, 0.0))
+
+	// Set up an initial movement transformation, so we can see the renderFrame working
+	transformMatrix = rotateAroundX(transformMatrix, -25/float64(12))
+	transformMatrix = rotateAroundY(transformMatrix, -25/float64(12))
 
 	// Start running
 	js.Global().Call("requestAnimationFrame", renderFrame)
@@ -324,106 +252,9 @@ func importObject(ob Object, x float64, y float64, z float64) (translatedObject 
 	return translatedObject
 }
 
-// Simple keyboard handler for catching the arrow, WASD, and numpad keys
-// Key value info can be found here: https://developer.mozilla.org/en-US/docs/Web/API/KeyboardEvent/key/Key_Values
-//go:export keyPressHandler
-func keyPressHandler(keyVal int) {
-	if debug {
-		println("Key is: " + strconv.Itoa(keyVal))
-	}
-
-	// If a key is pressed for a 2nd time in a row, then stop the animated movement
-	if keyVal == prevKey && queueOp != NOTHING {
-		queueOp = NOTHING
-		return
-	}
-
-	// The the plus or minus keys were pressed, increase the step size then cause the current operation to be recalculated
-	switch keyVal {
-	case KEY_MINUS:
-		stepSize -= 5.0
-		keyVal = prevKey
-	case KEY_PLUS:
-		stepSize += 5.0
-		keyVal = prevKey
-	}
-
-	// Set up translate and rotate operations
-	switch keyVal {
-	case KEY_MOVE_LEFT:
-		setUpOperation(TRANSLATE, 50, 12, stepSize/2, 0, 0)
-	case KEY_MOVE_RIGHT:
-		setUpOperation(TRANSLATE, 50, 12, -stepSize/2, 0, 0)
-	case KEY_MOVE_UP:
-		setUpOperation(TRANSLATE, 50, 12, 0, stepSize/2, 0)
-	case KEY_MOVE_DOWN:
-		setUpOperation(TRANSLATE, 50, 12, 0, -stepSize/2, 0)
-	case KEY_ROTATE_LEFT:
-		setUpOperation(ROTATE, 50, 12, 0, -stepSize, 0)
-	case KEY_ROTATE_RIGHT:
-		setUpOperation(ROTATE, 50, 12, 0, stepSize, 0)
-	case KEY_ROTATE_UP:
-		setUpOperation(ROTATE, 50, 12, -stepSize, 0, 0)
-	case KEY_ROTATE_DOWN:
-		setUpOperation(ROTATE, 50, 12, stepSize, 0, 0)
-	case KEY_PAGE_UP:
-		setUpOperation(ROTATE, 50, 12, -stepSize, stepSize, 0)
-	case KEY_PAGE_DOWN:
-		setUpOperation(ROTATE, 50, 12, stepSize, stepSize, 0)
-	case KEY_HOME:
-		setUpOperation(ROTATE, 50, 12, -stepSize, -stepSize, 0)
-	case KEY_END:
-		setUpOperation(ROTATE, 50, 12, stepSize, -stepSize, 0)
-	}
-	prevKey = keyVal
-}
-
-// Set up the details for the transformation operation
-//go:export setUpOperation
-func setUpOperation(op OperationType, t int32, f int32, X float64, Y float64, Z float64) {
-	queueParts = f                   // Number of parts to break each transformation into
-	transformMatrix = identityMatrix // Reset the transform matrix
-	switch op {
-	case ROTATE: // Rotate the objects in world space
-		// Divide the desired angle into a small number of parts
-		if X != 0 {
-			transformMatrix = rotateAroundX(transformMatrix, X/float64(queueParts))
-		}
-		if Y != 0 {
-			transformMatrix = rotateAroundY(transformMatrix, Y/float64(queueParts))
-		}
-		if Z != 0 {
-			transformMatrix = rotateAroundZ(transformMatrix, Z/float64(queueParts))
-		}
-
-	case SCALE:
-		// Scale the objects in world space
-		var xPart, yPart, zPart float64
-		if X != 1 {
-			xPart = ((X - 1) / float64(queueParts)) + 1
-		}
-		if Y != 1 {
-			yPart = ((Y - 1) / float64(queueParts)) + 1
-		}
-		if Z != 1 {
-			zPart = ((Z - 1) / float64(queueParts)) + 1
-		}
-		transformMatrix = scale(transformMatrix, xPart, yPart, zPart)
-
-	case TRANSLATE:
-		// Translate (move) the objects in world space
-		transformMatrix = translate(transformMatrix, X/float64(queueParts), Y/float64(queueParts), Z/float64(queueParts))
-	}
-	queueOp = op
-}
-
 // Apply each transformation, one small part at a time (this gives the animation effect)
 //go:export applyTransformation
 func applyTransformation() {
-	if (queueParts < 1 && queueOp == SCALE) || queueOp == NOTHING {
-		return
-	}
-
 	// If the queue # if greater than zero, there are still transforms to do
 	for j, o := range worldSpace {
 		var newPoints []Point
@@ -437,7 +268,6 @@ func applyTransformation() {
 		// Update the object in world space
 		worldSpace[j] = o
 	}
-	queueParts--
 }
 
 // Multiplies one matrix by another
@@ -510,31 +340,6 @@ func rotateAroundY(m matrix, degrees float64) matrix {
 	return matrixMult(rotateYMatrix, m)
 }
 
-// Rotates a transformation matrix around the Z axis by the given degrees
-//go:export rotateAroundZ
-func rotateAroundZ(m matrix, degrees float64) matrix {
-	rad := (math.Pi / 180) * degrees // The Go math functions use radians, so we convert degrees to radians
-	rotateZMatrix := matrix{
-		math.Cos(rad), -math.Sin(rad), 0, 0,
-		math.Sin(rad), math.Cos(rad), 0, 0,
-		0, 0, 1, 0,
-		0, 0, 0, 1,
-	}
-	return matrixMult(rotateZMatrix, m)
-}
-
-// Scales a transformation matrix by the given X, Y, and Z values
-//go:export scale
-func scale(m matrix, x float64, y float64, z float64) matrix {
-	scaleMatrix := matrix{
-		x, 0, 0, 0,
-		0, y, 0, 0,
-		0, 0, z, 0,
-		0, 0, 0, 1,
-	}
-	return matrixMult(scaleMatrix, m)
-}
-
 // Transform the XYZ co-ordinates using the values from the transformation matrix
 //go:export transform
 func transform(m matrix, p Point) (t Point) {
@@ -550,10 +355,6 @@ func transform(m matrix, p Point) (t Point) {
 	lowerMid1 := m[9]
 	lowerMid2 := m[10]
 	lowerMid3 := m[11]
-	//bot0 := m[12] // The fourth row values can be ignored for 3D matrices
-	//bot1 := m[13]
-	//bot2 := m[14]
-	//bot3 := m[15]
 
 	t.Label = p.Label
 	t.LabelAlign = p.LabelAlign
@@ -562,16 +363,3 @@ func transform(m matrix, p Point) (t Point) {
 	t.Z = (lowerMid0 * p.X) + (lowerMid1 * p.Y) + (lowerMid2 * p.Z) + lowerMid3
 	return
 }
-
-// Translates (moves) a transformation matrix by the given X, Y and Z values
-//go:export translate
-func translate(m matrix, translateX float64, translateY float64, translateZ float64) matrix {
-	translateMatrix := matrix{
-		1, 0, 0, translateX,
-		0, 1, 0, translateY,
-		0, 0, 1, translateZ,
-		0, 0, 0, 1,
-	}
-	return matrixMult(translateMatrix, m)
-}
-

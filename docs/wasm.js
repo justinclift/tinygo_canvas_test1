@@ -10,11 +10,6 @@ function init() {
     WebAssembly.instantiateStreaming(fetch(WASM_URL), go.importObject).then(function (obj) {
       wasm = obj.instance;
       go.run(wasm);
-
-        // Set up basic loop for triggering the transforms
-      setInterval(function() {
-        wasm.exports.applyTransformation();
-      },50);
     })
   } else {
     fetch(WASM_URL).then(resp =>
@@ -23,11 +18,6 @@ function init() {
       WebAssembly.instantiate(bytes, go.importObject).then(function (obj) {
         wasm = obj.instance;
         go.run(wasm);
-
-        // Set up basic loop for triggering the transforms
-        setInterval(function() {
-            wasm.exports.applyTransformation();
-        },50);
       })
     )
   }

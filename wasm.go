@@ -88,110 +88,10 @@ var (
 	graphWidth         float64
 	graphHeight        float64
 	height, width      int
+	renderFrame        js.Func
 )
 
 func main() {
-	// Declare the Go based event handlers here, as they can't get be stored in the global space yet (not implemented)
-	var renderFrame js.Func
-
-	// Renders one frame of the animation
-	renderFrame = js.FuncOf(func(this js.Value, args []js.Value) interface{} {
-		// Handle window resizing
-		curBodyW := js.Global().Get("innerWidth").Int()
-		curBodyH := js.Global().Get("innerHeight").Int()
-		if curBodyW != width || curBodyH != height {
-			width, height = curBodyW, curBodyH
-			canvasEl.Set("width", width)
-			canvasEl.Set("height", height)
-		}
-
-		// Setup useful variables
-		border := float64(2)
-		gap := float64(3)
-		left := border + gap
-		top := border + gap
-		graphWidth = float64(width) * 0.75
-		graphHeight = float64(height) - 1
-		centerX := graphWidth / 2
-		centerY := graphHeight / 2
-
-		// Clear the background
-		ctx.Set("fillStyle", "white")
-		ctx.Call("fillRect", 0, 0, width, height)
-
-		// Draw grid lines
-		step := math.Min(float64(width), float64(height)) / float64(30)
-		ctx.Set("strokeStyle", "rgb(220, 220, 220)")
-		for i := left; i < graphWidth-step; i += step {
-			// Vertical dashed lines
-			ctx.Call("beginPath")
-			ctx.Call("moveTo", i+step, top)
-			ctx.Call("lineTo", i+step, graphHeight)
-			ctx.Call("stroke")
-		}
-		for i := top; i < graphHeight-step; i += step {
-			// Horizontal dashed lines
-			ctx.Call("beginPath")
-			ctx.Call("moveTo", left, i+step)
-			ctx.Call("lineTo", graphWidth-border, i+step)
-			ctx.Call("stroke")
-		}
-
-		// Draw the axes
-		var pointX, pointY float64
-		ctx.Set("strokeStyle", "black")
-		ctx.Set("lineWidth", "1")
-		for _, o := range worldSpace {
-
-			// Draw the surfaces
-			ctx.Set("fillStyle", o.C)
-			for _, l := range o.S {
-				for m, n := range l {
-					pointX = o.P[n].X
-					pointY = o.P[n].Y
-					if m == 0 {
-						ctx.Call("beginPath")
-						ctx.Call("moveTo", centerX+(pointX*step), centerY+((pointY*step)*-1))
-					} else {
-						ctx.Call("lineTo", centerX+(pointX*step), centerY+((pointY*step)*-1))
-					}
-				}
-				ctx.Call("closePath")
-				ctx.Call("fill")
-			}
-
-			// Draw the edges
-			var point1X, point1Y, point2X, point2Y float64
-			for _, l := range o.E {
-				point1X = o.P[l[0]].X
-				point1Y = o.P[l[0]].Y
-				point2X = o.P[l[1]].X
-				point2Y = o.P[l[1]].Y
-				ctx.Call("beginPath")
-				ctx.Call("moveTo", centerX+(point1X*step), centerY+((point1Y*step)*-1))
-				ctx.Call("lineTo", centerX+(point2X*step), centerY+((point2Y*step)*-1))
-				ctx.Call("stroke")
-			}
-
-			// Draw any point labels
-			ctx.Set("fillStyle", "black")
-			ctx.Set("font", "bold 16px serif")
-			var px, py float64
-			for _, l := range o.P {
-				if l.Label != "" {
-					ctx.Set("textAlign", l.LabelAlign)
-					px = centerX + (l.X * step)
-					py = centerY + ((l.Y * step) * -1)
-					ctx.Call("fillText", l.Label, px, py)
-				}
-			}
-		}
-		ctx.Set("lineWidth", "2")
-
-		js.Global().Call("requestAnimationFrame", renderFrame)
-		return nil
-	})
-
 	// The actual main function, run once at start
 	width := js.Global().Get("innerWidth").Int()
 	height := js.Global().Get("innerHeight").Int()
@@ -209,13 +109,114 @@ func main() {
 	transformMatrix = rotateAroundX(transformMatrix, -25/float64(12))
 	transformMatrix = rotateAroundY(transformMatrix, -25/float64(12))
 
+	renderFrame = js.FuncOf(func(this js.Value, args []js.Value) interface{} {
+		realRenderFrame()
+		return nil
+	})
+
 	// Start running
+	js.Global().Call("requestAnimationFrame", renderFrame)
+}
+
+// Renders one frame of the animation
+func realRenderFrame() {
+	// Handle window resizing
+	curBodyW := js.Global().Get("innerWidth").Int()
+	curBodyH := js.Global().Get("innerHeight").Int()
+	if curBodyW != width || curBodyH != height {
+		width, height = curBodyW, curBodyH
+		canvasEl.Set("width", width)
+		canvasEl.Set("height", height)
+	}
+
+	// Setup useful variables
+	border := float64(2)
+	gap := float64(3)
+	left := border + gap
+	top := border + gap
+	graphWidth = float64(width) * 0.75
+	graphHeight = float64(height) - 1
+	centerX := graphWidth / 2
+	centerY := graphHeight / 2
+
+	// Clear the background
+	ctx.Set("fillStyle", "white")
+	ctx.Call("fillRect", 0, 0, width, height)
+
+	// Draw grid lines
+	step := math.Min(float64(width), float64(height)) / float64(30)
+	ctx.Set("strokeStyle", "rgb(220, 220, 220)")
+	for i := left; i < graphWidth-step; i += step {
+		// Vertical dashed lines
+		ctx.Call("beginPath")
+		ctx.Call("moveTo", i+step, top)
+		ctx.Call("lineTo", i+step, graphHeight)
+		ctx.Call("stroke")
+	}
+	for i := top; i < graphHeight-step; i += step {
+		// Horizontal dashed lines
+		ctx.Call("beginPath")
+		ctx.Call("moveTo", left, i+step)
+		ctx.Call("lineTo", graphWidth-border, i+step)
+		ctx.Call("stroke")
+	}
+
+	// Draw the axes
+	var pointX, pointY float64
+	ctx.Set("strokeStyle", "black")
+	ctx.Set("lineWidth", "1")
+	for _, o := range worldSpace {
+
+		// Draw the surfaces
+		ctx.Set("fillStyle", o.C)
+		for _, l := range o.S {
+			for m, n := range l {
+				pointX = o.P[n].X
+				pointY = o.P[n].Y
+				if m == 0 {
+					ctx.Call("beginPath")
+					ctx.Call("moveTo", centerX+(pointX*step), centerY+((pointY*step)*-1))
+				} else {
+					ctx.Call("lineTo", centerX+(pointX*step), centerY+((pointY*step)*-1))
+				}
+			}
+			ctx.Call("closePath")
+			ctx.Call("fill")
+		}
+
+		// Draw the edges
+		var point1X, point1Y, point2X, point2Y float64
+		for _, l := range o.E {
+			point1X = o.P[l[0]].X
+			point1Y = o.P[l[0]].Y
+			point2X = o.P[l[1]].X
+			point2Y = o.P[l[1]].Y
+			ctx.Call("beginPath")
+			ctx.Call("moveTo", centerX+(point1X*step), centerY+((point1Y*step)*-1))
+			ctx.Call("lineTo", centerX+(point2X*step), centerY+((point2Y*step)*-1))
+			ctx.Call("stroke")
+		}
+
+		// Draw any point labels
+		ctx.Set("fillStyle", "black")
+		ctx.Set("font", "bold 16px serif")
+		var px, py float64
+		for _, l := range o.P {
+			if l.Label != "" {
+				ctx.Set("textAlign", l.LabelAlign)
+				px = centerX + (l.X * step)
+				py = centerY + ((l.Y * step) * -1)
+				ctx.Call("fillText", l.Label, px, py)
+			}
+		}
+	}
+	ctx.Set("lineWidth", "2")
+
 	js.Global().Call("requestAnimationFrame", renderFrame)
 }
 
 // Returns an object whose points have been transformed into 3D world space XYZ co-ordinates.  Also assigns a number
 // to each point
-//go:export importObject
 func importObject(ob Object, x float64, y float64, z float64) (translatedObject Object) {
 	// X and Y translation matrix.  Translates the objects into the world space at the given X and Y co-ordinates
 	translateMatrix := matrix{
@@ -271,7 +272,6 @@ func applyTransformation() {
 }
 
 // Multiplies one matrix by another
-//go:export matrixMult
 func matrixMult(opMatrix matrix, m matrix) (resultMatrix matrix) {
 	top0 := m[0]
 	top1 := m[1]
@@ -315,7 +315,6 @@ func matrixMult(opMatrix matrix, m matrix) (resultMatrix matrix) {
 }
 
 // Rotates a transformation matrix around the X axis by the given degrees
-//go:export rotateAroundX
 func rotateAroundX(m matrix, degrees float64) matrix {
 	rad := (math.Pi / 180) * degrees // The Go math functions use radians, so we convert degrees to radians
 	rotateXMatrix := matrix{
@@ -328,7 +327,6 @@ func rotateAroundX(m matrix, degrees float64) matrix {
 }
 
 // Rotates a transformation matrix around the Y axis by the given degrees
-//go:export rotateAroundY
 func rotateAroundY(m matrix, degrees float64) matrix {
 	rad := (math.Pi / 180) * degrees // The Go math functions use radians, so we convert degrees to radians
 	rotateYMatrix := matrix{
@@ -341,7 +339,6 @@ func rotateAroundY(m matrix, degrees float64) matrix {
 }
 
 // Transform the XYZ co-ordinates using the values from the transformation matrix
-//go:export transform
 func transform(m matrix, p Point) (t Point) {
 	top0 := m[0]
 	top1 := m[1]
